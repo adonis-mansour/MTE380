@@ -6,14 +6,20 @@
 
 // Motor Definitoions
 // Right Motors
-#define in1 4
+#define in1 6
 #define in2 5
-#define en1 6
+#define in3 4
+#define in4 3
+#define en1 7
+#define en2 2
 
 // Left Motors
-#define in3 7
-#define in4 8
-#define en2 9
+#define in5 9
+#define in6 8
+#define in7 13
+#define in8 12
+#define en3 10
+#define en4 11
 
 // PID Consts
 #define Kp 3
@@ -32,14 +38,24 @@ void setup(void) {
   pinMode(in2, OUTPUT); 
   pinMode(in3, OUTPUT);
   pinMode(in4, OUTPUT);
-  pinMode(en1, OUTPUT);
-  pinMode(en2, OUTPUT);
+  pinMode(in5, OUTPUT);
+  pinMode(in6, OUTPUT); 
+  pinMode(in7, OUTPUT);
+  pinMode(in8, OUTPUT);
+  pinMode(en1, OUTPUT); // RL
+  pinMode(en2, OUTPUT); // FL
+  pinMode(en3, OUTPUT); // FR
+  pinMode(en4, OUTPUT); // RR
 
   // Initial direction (forwards)
   digitalWrite(in1, HIGH);
   digitalWrite(in2, LOW);
   digitalWrite(in3, HIGH);
   digitalWrite(in4, LOW);
+  digitalWrite(in5, HIGH);
+  digitalWrite(in6, LOW);
+  digitalWrite(in7, HIGH);
+  digitalWrite(in8, LOW);
   
   /* Initialise the sensor */
   if(!bno.begin())
@@ -56,15 +72,72 @@ void setup(void) {
 
 void stopMotors()
 {
-  analogWrite(en1, 0);
+  analogWrite(en4, 0);
+  analogWrite(en3, 0);
   analogWrite(en2, 0);
+  analogWrite(en1, 0);
+}
+
+void setForwards()
+{
+  digitalWrite(in1, HIGH);
+  digitalWrite(in2, LOW);
+  digitalWrite(in3, HIGH);
+  digitalWrite(in4, LOW);
+  digitalWrite(in5, HIGH);
+  digitalWrite(in6, LOW);
+  digitalWrite(in7, HIGH);
+  digitalWrite(in8, LOW);
+}
+
+void setBackwards()
+{
+  digitalWrite(in1, LOW);
+  digitalWrite(in2, HIGH);
+  digitalWrite(in3, LOW);
+  digitalWrite(in4, HIGH);
+  digitalWrite(in5, LOW);
+  digitalWrite(in6, HIGH);
+  digitalWrite(in7, LOW);
+  digitalWrite(in8, HIGH);
+}
+
+void setClockwise()
+{
+  digitalWrite(in1, HIGH);
+  digitalWrite(in2, LOW);
+  digitalWrite(in3, HIGH);
+  digitalWrite(in4, LOW);
+  digitalWrite(in5, LOW);
+  digitalWrite(in6, HIGH);
+  digitalWrite(in7, LOW);
+  digitalWrite(in8, HIGH);
+}
+
+void setCounterClockwise()
+{
+  digitalWrite(in1, LOW);
+  digitalWrite(in2, HIGH);
+  digitalWrite(in3, LOW);
+  digitalWrite(in4, HIGH);
+  digitalWrite(in5, HIGH);
+  digitalWrite(in6, LOW);
+  digitalWrite(in7, HIGH);
+  digitalWrite(in8, LOW);
+}
+
+void setMotorPWM(int pwm_r, int pwm_l)
+{
+    analogWrite(en1,pwm_l);
+    analogWrite(en2,pwm_l);
+    analogWrite(en3,pwm_r);
+    analogWrite(en4,pwm_r);
 }
 
 /*
- *  bool dir: 0 goes forwards, 1 goes backwards
- *  bool continue_cond: 1 to continue, 0 to stop
+ *  bool dir 0 goes forwards, 1 goes backwards
  */
-void goStraight(int dir, bool continue_cond)
+void goStraight(int dir, int counter)
 {
   int delayTime_millis = 50;
   float angle_x = 0;
@@ -81,29 +154,22 @@ void goStraight(int dir, bool continue_cond)
   
   if (dir == 0)
   {
-    digitalWrite(in1, HIGH);
-    digitalWrite(in2, LOW);
-    digitalWrite(in3, HIGH);
-    digitalWrite(in4, LOW);
+    setForwards();
   }
   else if (dir == 1)
   {
-    digitalWrite(in1, LOW);
-    digitalWrite(in2, HIGH);
-    digitalWrite(in3, LOW);
-    digitalWrite(in4, HIGH);
+    setBackwards();
   }
 
 
-  while(continue_cond)
+  for (int i = 0; i < counter; i++)
   {
     currTime = millis();
     sampleTime = (currTime - prevTime)/1000.0;
     prevTime = currTime;
-    
+
     // Motor Movement
-    analogWrite(en1, pwm_r);
-    analogWrite(en2, pwm_l);
+    setMotorPWM(pwm_r, pwm_l);
   
     // IMU Data
     euler = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
@@ -194,14 +260,10 @@ void turnAngle(bool dir, float angle)
     
     // Check for > 359
     if (angle > 359) {angle = angle - 360;}
-    
-    digitalWrite(in1, LOW);
-    digitalWrite(in2, HIGH);
-    digitalWrite(in3, HIGH);
-    digitalWrite(in4, LOW);
-      
-    analogWrite(en1, pwm_r);
-    analogWrite(en2, pwm_l);
+ 
+    setClockwise();
+
+    setMotorPWM(pwm_r, pwm_l);
 
     // For example, from 350 to 80 when going positive direction, go from 350 to 360, then 360=0, then 0 to 80 later
     while (angle_x - angle > 0)
@@ -229,13 +291,9 @@ void turnAngle(bool dir, float angle)
     // Check for < 0
     if (angle < 0) {angle = angle + 360;}
     
-    digitalWrite(in1, HIGH);
-    digitalWrite(in2, LOW);
-    digitalWrite(in3, LOW);
-    digitalWrite(in4, HIGH);
+    setCounterClockwise();
 
-    analogWrite(en1, pwm_r);
-    analogWrite(en2, pwm_l);
+    setMotorPWM(pwm_r, pwm_l);
 
     // For example, from 80 to 350 when going negative direction, go from 80 to 0, then 0=360, then 360 to 350 later
     while (angle_x - angle < 0)
@@ -265,85 +323,29 @@ void continuousAngle(bool dir)
   // Setting Direction
   if (dir == 0)
   {
-    digitalWrite(in1, LOW);
-    digitalWrite(in2, HIGH);
-    digitalWrite(in3, HIGH);
-    digitalWrite(in4, LOW);
+    setClockwise();
       
-    analogWrite(en1, pwm_r);
-    analogWrite(en2, pwm_l);
+    setMotorPWM(pwm_r, pwm_l);
   }
 
   else if (dir == 1)
   {
-    digitalWrite(in1, HIGH);
-    digitalWrite(in2, LOW);
-    digitalWrite(in3, LOW);
-    digitalWrite(in4, HIGH);
-
-    analogWrite(en1, pwm_r);
-    analogWrite(en2, pwm_l);
+    setCounterClockwise();
+      
+    setMotorPWM(pwm_r, pwm_l);
   }
 }
 
 void loop(void) 
 {
   delay(500);
-
-  goStraight(0, 40);
-  
+  goStraight(0, 50);
   delay(500);
-
-  goStraight(0, 40);
-  
+  turnAngle(0, 90);
   delay(500);
-
-  goStraight(0, 40);
-  
+  turnAngle(1,90);
   delay(500);
-
-  turnAngle(1, 90);
-
-  delay(500);
-
-  goStraight(0, 40);
-  
-  delay(500);
-
-  goStraight(0, 40);
-  
-  delay(500);
-
-  turnAngle(1, 90);
-
-  delay(500);
-
-  goStraight(0, 40);
-  
-  delay(500);
-
-  goStraight(0, 40);
-  
-  delay(500);
-
-  goStraight(0, 40);
-  
-  delay(500);
-
-  turnAngle(1, 90);
-
-  delay(500);
-
-  goStraight(0, 40);
-  
-  delay(500);
-
-  goStraight(0, 40);
-  
-  delay(500);
-
-  turnAngle(1, 90);
-
+  goStraight(1,50);
   
   while(true);
 }
