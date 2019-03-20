@@ -1,10 +1,16 @@
-#define FLAME1 53 
-#define FLAME2 51 
-#define FLAME3 50 
-#define FLAME4 52 
-#define FAN 49
+#define FLAME1 50 
+#define FLAME2 48 
+#define FLAME3 51 
+#define FLAME4 49 
+#define FAN 52
 
 void setup() {
+  init_flame_sensor();  
+
+  //delay(5000);
+}
+
+void init_flame_sensor() {
   Serial.begin(9600);
   pinMode(FLAME1, INPUT);
   pinMode(FLAME2, INPUT);
@@ -12,8 +18,14 @@ void setup() {
   pinMode(FLAME4, INPUT);
   pinMode(LED_BUILTIN, OUTPUT);
   pinMode(FAN, OUTPUT);
+}
 
-  //delay(5000);
+void fan_control(bool mode) {
+  if (mode == 1) {
+    digitalWrite(FAN, HIGH);
+  } else if (mode == 0) {
+    digitalWrite(FAN, LOW);
+  }
 }
 
 bool Detect_Flame() {
@@ -40,14 +52,14 @@ bool Detect_Flame() {
   if(  fire4 == LOW)
   {
     digitalWrite(LED_BUILTIN, HIGH);
-    digitalWrite(FAN, HIGH);
+    fan_control(1);
     Serial.println("Fire");
     return true;
-    delay(200); // ??? IS THIS DELAY REQUIRED?
+    //delay(200); // ??? IS THIS DELAY REQUIRED?
     
   }else{
     Serial.println("Nothing");
-    digitalWrite(LED_BUILTIN, LOW);
+    fan_control(0);
     digitalWrite(FAN, LOW);
     return false;
   }
