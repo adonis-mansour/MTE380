@@ -1,27 +1,25 @@
+#include <SparkFun_RFD77402_Arduino_Library.h>
+
 //  COLOUR SENSOR DEFS
-#define S0 4
-#define S1 5
-#define S2 6
-#define S3 7
-#define sensorOut 8
+#define S0 8
+#define S1 9
+#define S2 10
+#define S3 11
+#define sensorOut 12
 
-#define Colour_REQUEST 48
-#define Colour_RED_HOUSE 49
-#define Colour_YELLOW_HOUSE 50
-#define Colour_OTHER 51
-#define Colour_SENT 52
+//COLOUR SENSOR DATA TRANSFER
+#define Colour_REQUEST 25
+#define Colour_SENT 50
 
-//  FRONT ULTRASONIC DEFS
-#define trigPin0 9   //FR                                
-#define echoPin0 10    
-#define trigPin1 13    //FL                               
-#define echoPin1 11
+// TOF SENSOR DATA TRANSFER
+#define TOF_REQUEST 23
+#define TOF_SENT 22
 
-#define US_REQUEST 23
-#define US_DATA 25
-#define US_SENT 22
+//BACKUP DATA TRANSFER
+// (NOT NECESSARY - BACKUP)
 
-
+//TOF SENSOR INIT
+RFD77402 myDistance; //Hook object to the library
 
 //  COLOUR SENSOR CONSTANTS
 int R, G, B, R_counter=0, G_counter=0, B_counter=0;
@@ -31,84 +29,19 @@ int G_values[Colour_NumOfValues]={0};
 int B_values[Colour_NumOfValues]={0};
 int frequency = 0;
 
-//  FRONT ULTRASONIC DEFS
-long duration, distance; 
-int US_counter = 0, US = 0;
-boolean sensors_detected[2] = {0};
-bool object_location = false;
-
-const int US_NumOfValues = 3;
-int US0_values[US_NumOfValues]={0};    //FR
-int US1_values[US_NumOfValues]={0};    //FL
-
-
-
-//  MOTOR FUNCTIONS
-
-//  FRONT ULTRASONIC 
-void init_US_sensor() {
-  pinMode(US_REQUEST, INPUT);
-  pinMode(US_DATA, OUTPUT);
-  pinMode(US_SENT, OUTPUT);
+//SENDING DATA TOF
+void sendDataTOF(int myint){
+  byte data[2] = {0};
+  data[0] = (byte) (myint & 0xFF);
+  data[1] = (byte) ((myint >> 8) & 0xFF);
   
+  Serial.write(data, 2);
+  digitalWrite(TOF_SENT, HIGH);
+  while(digitalRead(TOF_REQUEST));
+  digitalWrite(TOF_SENT, LOW);
 }
-//void front_sensors_request() {
-//  //while (digitalRead(US_REQUEST) == LOW) {} //Redundant???
-//  if (object_location) {
-//    Serial.println("US DATA HIGH");
-//    digitalWrite(US_DATA, HIGH);
-//  } else {
-//    digitalWrite(US_DATA, LOW);
-//  }
-//  digitalWrite(US_SENT, HIGH);
-//  while (digitalRead(US_REQUEST) == HIGH) {}
-//  digitalWrite(US_DATA, LOW);
-//  digitalWrite(US_SENT, LOW);
-//}
-void SonarSensor(int sensor_num, int trigPinSensor,int echoPinSensor, int values[]) {
-  pinMode(trigPinSensor, OUTPUT);
-  pinMode(echoPinSensor, INPUT);   
- 
-  digitalWrite(trigPinSensor, LOW);
-  delayMicroseconds(2);
-  digitalWrite(trigPinSensor, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(trigPinSensor, LOW);
 
-  duration = pulseIn(echoPinSensor, HIGH);
-  distance= (duration/2) / 29.1;  
-
-  values[US_counter] = distance;
-  US = 0;
-  for (int i=0; i<US_NumOfValues; i++) {
-    US = US+values[i];
-  }
-  US = (US)/US_NumOfValues;
-  delay(50); 
-
-  if (US <= 30) {
-    sensors_detected[sensor_num] = true;
-  } else {
-    sensors_detected[sensor_num] = false;
-  }
-}
-bool detect_objects() {
-  //Serial.print("Sensor FR: ");
-  SonarSensor(0, trigPin0,echoPin0,  US0_values);   
-  
-  //Serial.print("Sensor FL: ");
-  SonarSensor(1, trigPin1,echoPin1,  US1_values);   
-  if (sensors_detected[0] == true || sensors_detected[1]== true) {
-    object_location = true;
-    Serial.println("Front: Detected     "); // wtf was dhruv thinking here TODO TO DO alhamdulilah
-
-  } else {
-    object_location = false;
-    Serial.println("Front: Nothing      "); // dhruv wtf again TODO TO DO bismillah
-  }    
-  US_counter = (US_counter + 1)%US_NumOfValues;
-  return object_location;
-}
+//SENDING COLOUR SENSOR DATA
 
 //  COLOUR SENSOR
 void init_colour_sensor() {
@@ -122,13 +55,12 @@ void init_colour_sensor() {
   digitalWrite(S0,HIGH);
   digitalWrite(S1,LOW);
 
-  pinMode(Colour_REQUEST, OUTPUT);
-  pinMode(Colour_RED_HOUSE, INPUT);
-  pinMode(Colour_YELLOW_HOUSE, INPUT);
-  pinMode(Colour_OTHER, INPUT);
-  pinMode(Colour_SENT, INPUT);  
+  pinMode(Colour_REQUEST, INPUT);
+  pinMode(Colour_SENT, OUTPUT);  
+  pinMode(TOF_REQUEST, INPUT);
+  pinMode(TOF_SENT, OUTPUT);  
 }
-void DetectColour() {
+int DetectColour() {
     // Setting red filtered photodiodes to be read
   digitalWrite(S2,LOW);
   digitalWrite(S3,LOW);
@@ -140,10 +72,10 @@ void DetectColour() {
   }
   R = (R)/Colour_NumOfValues;
   R_counter = (R_counter + 1)%Colour_NumOfValues;
-  Serial.print("R= ");//printing name
-  Serial.print(R);//printing RED color frequency
-  Serial.print("  ");
-  delay(100);
+//  Serial.print("R= ");//printing name
+//  Serial.print(R);//printing RED color frequency
+//  Serial.print("  ");
+//  delay(100);
 
   // Setting Green filtered photodiodes to be read
   digitalWrite(S2,HIGH);
@@ -156,10 +88,10 @@ void DetectColour() {
   }
   G = (G)/Colour_NumOfValues;
   G_counter = (G_counter + 1)%Colour_NumOfValues;
-  Serial.print("G= ");//printing name
-  Serial.print(G);//printing RED color frequency
-  Serial.print("  ");
-  delay(100);
+//  Serial.print("G= ");//printing name
+//  Serial.print(G);//printing RED color frequency
+//  Serial.print("  ");
+//  delay(100);
 
   // Setting Blue filtered photodiodes to be read
   digitalWrite(S2,LOW);
@@ -172,19 +104,19 @@ void DetectColour() {
   }
   B = (B)/Colour_NumOfValues;
   B_counter = (B_counter + 1)%Colour_NumOfValues;
-  Serial.print("B= ");//printing name
-  Serial.print(B);//printing RED color frequency
-  Serial.print("  ");
-  delay(100);
+//  Serial.print("B= ");//printing name
+//  Serial.print(B);//printing RED color frequency
+//  Serial.print("  ");
+//  delay(100);
 
   if ((B-R) >= 15 && (B-R) >= 0) {
-    Serial.print("Colour: Red");
-    colour_sensor_result(1); //RED house detected    
+    //Serial.print("Colour: Red");
+    return 1; //RED house detected    
   } else if ((B-R) <=14 && (B-R) >= 0 && G<15) {
-    Serial.print("Colour: Yellow");
-    colour_sensor_result(0);; //YELLOW house detected   
+    //Serial.print("Colour: Yellow");
+    return 0; //YELLOW house detected   
   } else {
-    colour_sensor_result(3);
+    return 2;
   }
  
 //  else if ((R-B) < 9 && (R-B) >= 0) {
@@ -193,40 +125,49 @@ void DetectColour() {
 //  } else {
 //    return 2; //CANDLE detected
 //  }
-  Serial.println("  ");
 }
 
-void colour_sensor_result(int object) {
-  while (digitalRead(Colour_REQUEST) == LOW) {}
-  if (object == 0) {
-    digitalWrite(Colour_YELLOW_HOUSE, HIGH);
-    digitalWrite(Colour_RED_HOUSE, LOW);
-    digitalWrite(Colour_OTHER, LOW); 
-  } else if (object == 1) {
-    digitalWrite(Colour_YELLOW_HOUSE, LOW);
-    digitalWrite(Colour_RED_HOUSE, HIGH);
-    digitalWrite(Colour_OTHER, LOW);    
-  } else {
-    digitalWrite(Colour_YELLOW_HOUSE, LOW);
-    digitalWrite(Colour_RED_HOUSE, LOW);
-    digitalWrite(Colour_OTHER, HIGH);    
+// send colour data
+void sendDataColour(int myint){
+  byte data[1] = {0};
+  data[0] = (byte) (myint & 0xFF);
+  
+  Serial.write(data, 1);
+  digitalWrite(Colour_SENT, HIGH);
+  while(digitalRead(Colour_REQUEST)); //while still requested do nothing
+  digitalWrite(Colour_SENT, LOW);
+}
+
+//TOF SENSOR FUNCTIONS
+void init_tof()
+{ 
+  pinMode(TOF_REQUEST, INPUT);
+  pinMode(TOF_SENT, OUTPUT);
+  if (myDistance.begin() == false)
+  {
+    Serial.println("Sensor failed to initialize. Check wiring.");
+    //while (1); //Freeze!
   }
 }
 
-//homing in
+int getDistance_tof()
+{
+  myDistance.takeMeasurement(); //Tell sensor to take measurement
+  return myDistance.getDistance();
+}
 
 void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
-  Serial.begin(9600);
+  Serial.begin(19200);
+  init_tof();
+  init_colour_sensor();
 }
 
 void loop() {
-  detect_objects();
-  if(object_location) {
-    digitalWrite(US_DATA, HIGH);
-    digitalWrite(LED_BUILTIN, HIGH);
+  if (digitalRead(TOF_REQUEST) == HIGH) {
+    sendDataTOF(getDistance_tof());
   }
-  else digitalWrite(US_DATA,LOW);
-  Serial.println(object_location);
-  //front_sensors_request();
+  if (digitalRead(Colour_REQUEST) == HIGH) {
+    sendDataColour(DetectColour());
+  } 
 }
