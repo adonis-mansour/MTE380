@@ -2,6 +2,15 @@
 #include <stdbool.h>
 #include <stdlib.h>
 
+// IMU Libs
+#include <Wire.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_BNO055.h>
+#include <utility/imumaths.h>
+
+// TOF Libs
+#include <SparkFun_RFD77402_Arduino_Library.h>
+
 /////////////////////////////////////////////
 ///////////// SENSOR DEFS  /////////////
 /////////////////////////////////////////////
@@ -16,16 +25,18 @@
 
 //ULTRASONIC DEFS
 #define trigPin 8  //Trigger                                                               
-#define echoPin2 5 //Right_Front
-#define echoPin3 6 //Right_Back
+#define echoPin0 9  //Front_Left
+#define echoPin1 13 //Front_Right
+#define echoPin2 5  //Right_Front
+#define echoPin3 6  //Right_Back
 #define echoPin4 2  //Left_Front
 #define echoPin5 3  //Left_Back
 #define echoPin6 7  //Rear_R                                     
-#define echoPin7 4 //Rear_L
+//#define echoPin7 4  //Rear_L
 
-#define US_REQUEST 23
-#define US_DATA 19
-#define US_SENT 22
+//TOF SENSOR DATA TRANSFER
+#define TOF_REQUEST 23
+#define TOF_SENT 22
 
 // HALL EFFECT DEFS
 #define HE0 A0
@@ -36,20 +47,45 @@
 #define HE5 A5
 #define HE6 A6
 #define HE7 A7
-#define HE8 A8
+#define HE8 A13
 
 //COLOUR SENSOR RECEIVER DEFS
-#define Colour_REQUEST 48
+#define Colour_REQUEST 25
+#define Colour_SENT 24
+
+//EXTRA
 #define Colour_RED_HOUSE 49
 #define Colour_YELLOW_HOUSE 50
 #define Colour_OTHER 51
-#define Colour_SENT 52
 
 //IR SENSOR 
 #define sensor0 A9  //F                              
 #define sensor1 A10  //R
 #define sensor2 A11  //L
 #define sensor3 A12  //B
+
+// Motor Definitions
+// Right Motors
+#define in1 32
+#define in2 30
+#define in3 28
+#define in4 26
+#define en1 12 //RL
+#define en2 11 //FL
+
+// Left Motors
+#define in5 33
+#define in6 31
+#define in7 29
+#define in8 27
+#define en3 10 // FR
+#define en4 4  // RR
+
+// PID Consts
+#define Kp 3
+#define Ki 0.5
+#define Kd 0.001
+
 ////////////////////////////////////////////
 
 /////////////////////////////////////////////
@@ -62,7 +98,9 @@ int US_counter = 0, US = 0;
 boolean sensors_detected[8] = {0};
 boolean object_location[4] = {0};
 
-const int US_NumOfValues = 3;
+const int US_NumOfValues = 5;
+int US0_values[US_NumOfValues]={0};
+int US1_values[US_NumOfValues]={0};
 int US2_values[US_NumOfValues]={0};
 int US3_values[US_NumOfValues]={0};
 int US4_values[US_NumOfValues]={0};
@@ -82,6 +120,13 @@ int IR1_values[NumOfValues]={0};
 int IR2_values[NumOfValues]={0};
 int IR3_values[NumOfValues]={0};
 int IR, IR0, IR1, IR2, IR3;
+
+// IMU Vars
+Adafruit_BNO055 bno = Adafruit_BNO055(55);
+float target_angle_x = 0;
+
+// TOF Sensor
+RFD77402 tof_distance;
 ////////////////////////////////////////////
 
 /////////////////////////////////////////////
@@ -331,6 +376,96 @@ list findPath(tile* starting, tile* end, tile b[][DIMENSION]){
     return path;
 }
 
+void predictCosts(tile* current, tile* previous, tile* end, int gCost[][DIMENSION], int hCost[][DIMENSION], int fCost[][DIMENSION]){
+
+    if (current == NULL) return;
+
+    coordinates c = current->location;
+    coordinates cP = previous->location;
+    hCost[c.x][c.y] = findDistance(c, end->location);
+
+    if (current->type != 2 && !current->isObstacle){
+        int g = gCost[cP.x][cP.y] + findDistance(c,cP);
+        if (g < gCost[c.x][c.y]){
+            current->parent = previous;
+            gCost[c.x][c.y] = g;
+        }
+    }
+
+    else if (current->type != 2 && current->isObstacle && current == end){
+        int g = gCost[cP.x][cP.y] + findDistance(c,cP);
+        if (g < gCost[c.x][c.y]){
+            current->parent = previous;
+            gCost[c.x][c.y] = g;
+        }
+    }
+    fCost[c.x][c.y] = gCost[c.x][c.y] + hCost[c.x][c.y];
+    return;
+}
+
+int findActualDistance(tile b[][DIMENSION], tile* starting, tile* end){
+    if(starting == end) return 0;
+    tile* current = starting;
+    int gCost[DIMENSION][DIMENSION];
+    int hCost[DIMENSION][DIMENSION];
+    int fCost[DIMENSION][DIMENSION];
+    //bool nextToWater[DIMENSION][DIMENSION];
+    bool isTraversed[DIMENSION][DIMENSION];
+
+    for(int i = 0; i < DIMENSION; i++){
+        for(int j = 0; j < DIMENSION; j++){
+            gCost[i][j] = 1000;
+            hCost[i][j] = 1000;
+            fCost[i][j] = 1000;
+            isTraversed[i][j] = false;
+        }
+    }
+
+    coordinates c = starting->location;
+    gCost[c.x][c.y] = 0;
+    isTraversed[c.x][c.y] = true;
+
+    //WHILE LOOP STARTS HERE
+    while (current != end) {
+        //CHECKING SURROUNDING COSTS
+        predictCosts(current->behindSquare, current, end, gCost, hCost, fCost);
+        predictCosts(current->frontSquare, current, end, gCost, hCost, fCost);
+        predictCosts(current->leftSquare, current, end, gCost, hCost, fCost);
+        predictCosts(current->rightSquare, current, end, gCost, hCost, fCost);
+
+        //FINDING LOWEST F COST AND SETTING IT TO CURRENT NODE
+        int lowestCost = 1000;
+        int x = 0;
+        int y = 0;
+        for (int i = 0; i < DIMENSION; i++) {
+            for (int j = 0; j < DIMENSION; j++) {
+                if (fCost[i][j] < lowestCost && isTraversed[i][j] == false) {
+                    x = i;
+                    y = j;
+                    lowestCost = fCost[i][j];
+                } else if (fCost[i][j] == lowestCost && isTraversed[i][j] == false) {
+                    if (hCost[i][j] < hCost[x][y]) {
+                        x = i;
+                        y = j;
+                        lowestCost = fCost[i][j];
+                    }
+                }
+            }
+        }
+        current = &b[x][y];
+        isTraversed[x][y] = true;
+    }
+
+    //FINDING THE COST
+    tile* currentNode = end;
+    int score = 10;
+    while(currentNode->parent != starting){
+        score += 10;
+        currentNode = currentNode->parent;
+    }
+    return score;
+}
+
 //MOVE FORWARD
 void moveForward(){
     Serial.print("Moving forward");
@@ -514,6 +649,7 @@ void reveal(tile* b, int terrain){
     b->type = terrain;
 }
 
+// TODO: Fix this (signal is already used)
 void signal(){
     Serial.println("ITEM FOUND\n");
 }
@@ -694,24 +830,24 @@ void moveTowards(tile* start, tile* end, bool isVisited[][DIMENSION], tile board
     //printf("Type: %d Obstacle: %d\n", current->frontSquare->type != 2, current->frontSquare->isObstacle);
     if (current->frontSquare != NULL && current->frontSquare->type != 2 && !current->frontSquare->isObstacle){
         visited = isVisited[current->frontSquare->location.x][current->frontSquare->location.y];
-        distance[0] = (1 + visited + !(current->frontSquare->type == 1 && !visited))*findDistance(current->frontSquare->location, end->location);
+        distance[0] = (1 + visited + !(current->frontSquare->type == 1 && !visited) + (current->frontSquare == relativePointer(current, 4)))*findDistance(current->frontSquare->location, end->location);
         //printf("front dist: %d Distance to goal:%d Is visited?: %d \n", distance[0],findDistance(current->frontSquare->location, end->location),visited);
     }
     if (current->rightSquare != NULL && current->rightSquare->type != 2 && !current->rightSquare->isObstacle){
         visited = isVisited[current->rightSquare->location.x][current->rightSquare->location.y];
-        distance[1] = (1 + visited + !(current->rightSquare->type == 1 && !visited))*findDistance(current->rightSquare->location, end->location);
+        distance[1] = (1 + visited + !(current->rightSquare->type == 1 && !visited)+ (current->rightSquare == relativePointer(current, 4)))*findDistance(current->rightSquare->location, end->location);
         //printf("right dist: %d Distance to goal:%d Is visited?: %d \n", distance[1],findDistance(current->rightSquare->location, end->location),visited);
     }
 
     if (current->behindSquare != NULL && current->behindSquare->type != 2 && !current->behindSquare->isObstacle){
         visited = isVisited[current->behindSquare->location.x][current->behindSquare->location.y];
-        distance[2] = (1 + visited + !(current->behindSquare->type == 1 && !visited))*findDistance(current->behindSquare->location, end->location);
+        distance[2] = (1 + visited + !(current->behindSquare->type == 1 && !visited)+ (current->behindSquare == relativePointer(current, 4)))*findDistance(current->behindSquare->location, end->location);
         //printf("behind dist: %d Distance to goal:%d Is visited?: %d \n", distance[2],findDistance(current->behindSquare->location, end->location),visited);
     }
 
     if (current->leftSquare != NULL && current->leftSquare->type != 2 && !current->leftSquare->isObstacle){
         visited = isVisited[current->leftSquare->location.x][current->leftSquare->location.y];
-        distance[3] = (1 + visited + !(current->leftSquare->type == 1 && !visited))*findDistance(current->leftSquare->location, end->location);
+        distance[3] = (1 + visited + !(current->leftSquare->type == 1 && !visited)+ (current->leftSquare == relativePointer(current, 4)))*findDistance(current->leftSquare->location, end->location);
         //printf("left dist: %d Distance to goal:%d Is visited?: %d\n", distance[3],findDistance(current->leftSquare->location, end->location),visited);
     }
 
@@ -803,7 +939,7 @@ tile* findTarget(tile* current, tile board[][DIMENSION], bool isVisited[][DIMENS
                         !tempSquare->leftSquare->behindSquare->isRevealed)
                         tempSurr++;
                 }
-                double dist = findDistance(current->location, tempSquare->location);
+                double dist = findActualDistance(board, current, tempSquare);
                 double temp = 100 * tempSurr / dist;
                 //printf("Ratio: %f, Surr: %d, Dist: %f, Coord: (%d,%d)\n", 100*tempSurr/dist, tempSurr, dist, i,j);
                 if (100 * tempSurr / dist == 50) return &board[i][j];
@@ -814,6 +950,10 @@ tile* findTarget(tile* current, tile board[][DIMENSION], bool isVisited[][DIMENS
             }
         }
     }
+    Serial.print("Trying to go to: ");
+    Serial.print(currentBest->location.x);
+    Serial.print(",");
+    Serial.println(currentBest->location.y);
     return currentBest;
 }
 
@@ -978,12 +1118,6 @@ void roam(tile board[][DIMENSION]){
 /////////////////////////////////////////////
 
 //L/R/B ULTRASONIC FUNCTIONS
-void init_US_sensor() {
-  pinMode(US_REQUEST, OUTPUT);
-  pinMode(US_DATA, INPUT);
-  pinMode(US_SENT, INPUT);
-}
-
 void SonarSensor(int sensor_num, int trigPinSensor,int echoPinSensor, int values[]) {
   pinMode(trigPinSensor, OUTPUT);
   pinMode(echoPinSensor, INPUT);   
@@ -995,12 +1129,11 @@ void SonarSensor(int sensor_num, int trigPinSensor,int echoPinSensor, int values
   digitalWrite(trigPinSensor, LOW);
 
   US_duration = pulseIn(echoPinSensor, HIGH);
-  US_distance= (US_duration/2) / 29.1;
-    
+  US_distance= (US_duration/2) / 29.1;  
 
-  values[US_counter] = US_distance; 
+  values[US_counter] = US_distance;
   US = 0;
-  for (int i=0; i<US_NumOfValues; i++) { 
+  for (int i=0; i<US_NumOfValues; i++) {
     US = US+values[i];
   }
   US = (US)/US_NumOfValues;
@@ -1013,39 +1146,33 @@ void SonarSensor(int sensor_num, int trigPinSensor,int echoPinSensor, int values
   }
 
 }
-bool front_sensors_check() {
-  bool temp;
-//  digitalWrite(US_REQUEST, HIGH);
-//  while (digitalRead(US_SENT) == LOW){};
-  if (digitalRead(US_DATA) == HIGH) {
-    temp = 1;
-  } else {
-    temp = 0;
-  }
-  //digitalWrite(US_REQUEST, LOW);
-  return temp;
-}
 
 bool detect_objects() {
+  //Serial.print("Sensor FL: ");
+  SonarSensor(0, trigPin,echoPin0,  US0_values);  //Front_Left
+  
+  //Serial.print("Sensor FR: ");
+  SonarSensor(1, trigPin,echoPin1,  US1_values);  //Front_Right
+  
   //Serial.print("Sensor RF: ");
-  SonarSensor(2, trigPin,echoPin2,  US2_values);   //right front
-  
-  //Serial.print("Sensor BR: ");
-  SonarSensor(3, trigPin, echoPin3,  US3_values);   //back right
-  
-//  //Serial.print("Sensor LF: ");
-  //SonarSensor(4, trigPin,echoPin4,  US4_values);   //left front
-//  
-//  //Serial.print("Sensor LB: ");
-//  SonarSensor(5, trigPin,echoPin5,  US5_values);   //left back (BROKEN)
-//  
-  //Serial.print("Sensor BR: ");
-  SonarSensor(6, trigPin,echoPin6,  US6_values);   // right back
-//  
-//  //Serial.print("Sensor BL: ");
-  SonarSensor(7, trigPin,echoPin7,  US7_values);    //  back left   
+  SonarSensor(2, trigPin,echoPin2,  US2_values);  //Right Front
 
-  if (front_sensors_check() == true) {
+  //Serial.print("Sensor BR: ");
+  SonarSensor(6, trigPin,echoPin6,  US6_values);  //Right Back
+   
+  //Serial.print("Sensor LF: ");
+  SonarSensor(4, trigPin,echoPin4,  US4_values);  //Left Front
+  
+  //Serial.print("Sensor LB: ");
+  SonarSensor(5, trigPin,echoPin5,  US5_values);  //Left Back
+  
+  // Serial.print("Sensor RB: ");
+  SonarSensor(3, trigPin,echoPin3,  US3_values);  //Back Right
+  
+//  //Serial.print("Sensor BL: ");
+//  SonarSensor(7, trigPin,echoPin7,  US7_values);  //Back Left
+
+  if (sensors_detected[0] == true || sensors_detected[1]== true) {
     object_location[0] = true;
     Serial.print("Front: Detected     ");
 
@@ -1053,9 +1180,7 @@ bool detect_objects() {
     object_location[0] = false;
     Serial.print("Front: Nothing      ");
   }
-
-  
-  if (sensors_detected[2] == true || sensors_detected[6]== true) { //working
+  if (sensors_detected[2] == true || sensors_detected[6]== true) {
     object_location[1] = true;
     Serial.print("Right: Detected     ");
 
@@ -1064,25 +1189,58 @@ bool detect_objects() {
     Serial.print("Right: Nothing      ");
   }
 
-//  if (sensors_detected[4] == true || sensors_detected[5]== true) { //replace IR sensor
-//    object_location[2] = true;
-//    Serial.print("Left: Detected     ");
-//
-//  } else {
-//    object_location[2] = false;
-//    Serial.print("Left: Nothing       ");
-//  }
-//
-  if (sensors_detected[7] == true || sensors_detected[3]== true) { //working
+  if (sensors_detected[4] == true || sensors_detected[5]== true) {
+    object_location[2] = true;
+    Serial.print("Left: Detected     ");
+
+  } else {
+    object_location[2] = false;
+    Serial.print("Left: Nothing       ");
+  }
+
+  if (sensors_detected[3] == true) {
     object_location[3] = true;
     Serial.print("Back: Detected     ");
   } else {
     object_location[3] = false;
     Serial.print("Back: Nothing     ");
   }
+
+  
   
   US_counter = (US_counter + 1)%US_NumOfValues;
+  //Serial.print(US);
+  Serial.println("   ");
+
   return object_location;
+}
+
+/*
+ * Returns in mm
+ * 
+ * Pins:
+ * FL - 9
+ * FR - 13
+ */
+int sonar_dist(int echoPinSensor)
+{
+  int trigPinSensor = 8;
+  long single_duration = 0;
+  long single_distance = 0;
+  
+  pinMode(trigPinSensor, OUTPUT);
+  pinMode(echoPinSensor, INPUT);   
+ 
+  digitalWrite(trigPinSensor, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trigPinSensor, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPinSensor, LOW);
+
+  single_duration = pulseIn(echoPinSensor, HIGH);
+  single_distance = (single_duration/2) / 29.1 * 10;  
+
+  return single_distance;
 }
 
 // HALL EFFECT
@@ -1098,17 +1256,17 @@ bool Mag_detect() {
 
   for (int i = 0; i < 13; i++ ) {
     delay(100);
-    gauss[0] = (analogRead(HE1) - NOFIELD) * TOMILLIGAUSS;
+    gauss[0] = (analogRead(HE0) - 507) * TOMILLIGAUSS;
     Serial.print(gauss[0]);
     Serial.println(i);
-    gauss[1] = (analogRead(HE1) - NOFIELD) * TOMILLIGAUSS;
-    gauss[2] = (analogRead(HE2) - NOFIELD) * TOMILLIGAUSS;
-    gauss[3] = (analogRead(HE3) - NOFIELD) * TOMILLIGAUSS;
-    gauss[4] = (analogRead(HE4) - NOFIELD) * TOMILLIGAUSS;
-    gauss[5] = (analogRead(HE5) - NOFIELD) * TOMILLIGAUSS;
-    gauss[6] = (analogRead(HE6) - NOFIELD) * TOMILLIGAUSS;
-    gauss[7] = (analogRead(HE7) - NOFIELD) * TOMILLIGAUSS;
-    gauss[8] = (analogRead(HE8) - NOFIELD) * TOMILLIGAUSS;
+    gauss[1] = (analogRead(HE1) - 507) * TOMILLIGAUSS;
+    gauss[2] = (analogRead(HE2) - 506) * TOMILLIGAUSS;
+    gauss[3] = (analogRead(HE3) - 506) * TOMILLIGAUSS;
+    gauss[4] = (analogRead(HE4) - 505) * TOMILLIGAUSS;
+    gauss[5] = (analogRead(HE5) - 509) * TOMILLIGAUSS;
+    gauss[6] = (analogRead(HE6) - 503) * TOMILLIGAUSS;
+    gauss[7] = (analogRead(HE7) - 507) * TOMILLIGAUSS;
+    gauss[8] = (analogRead(HE8) - 508) * TOMILLIGAUSS;
   }
 
   if ( (gauss[0] < -7) or (gauss[1] < -7) or (gauss[2] < -7) or (gauss[3] < -7) or (gauss[4] < -7) or (gauss[5] < -7) or (gauss[6] < -7) or (gauss[7] < -7) or (gauss[8] < -7)) {
@@ -1130,25 +1288,22 @@ bool Mag_detect() {
 // COLOUR SENSOR RECEIVER // 0 = survior, 1 = house, 2 = candle
 void init_colour_sensor() {
   pinMode(Colour_REQUEST, OUTPUT);
-  pinMode(Colour_RED_HOUSE, INPUT);
-  pinMode(Colour_YELLOW_HOUSE, INPUT);
-  pinMode(Colour_OTHER, INPUT);
   pinMode(Colour_SENT, INPUT);
 }
-int colour_sensor_check() {
-  int temp;
-  digitalWrite(Colour_REQUEST, HIGH);
-  while (digitalRead(Colour_SENT) == LOW){};
-  if (digitalRead(Colour_YELLOW_HOUSE) == HIGH) {
-    temp = 0;
-  } else if (digitalRead(Colour_RED_HOUSE) == HIGH){
-    temp = 1;
-  } else {
-    temp = 2;
+
+unsigned int requestColour(){
+  int colour = 0;
+  digitalWrite(Colour_REQUEST, HIGH);  //I want data
+
+  while(!digitalRead(Colour_SENT)){ // while I haven't received anything
+    while(!Serial.available());
+    colour = Serial.read();
   }
+  
   digitalWrite(Colour_REQUEST, LOW);
-  return temp;
+  return (colour);
 }
+
 
 // FLAME SENSOR
 void init_flame_sensor() {
@@ -1190,6 +1345,7 @@ bool Detect_Flame() {
   }
   delay(200);
 }
+
 // IR FUNCTION
 float Read_Distance(int sensor, int values[]) {
   volts = analogRead(sensor)*0.0048828125;  // value from sensor * (5/1024)
@@ -1240,46 +1396,588 @@ void fan_control(bool mode) {
     digitalWrite(FAN, LOW);
   }
 }
+
+
+// TOF SENSOR
+void init_tof()
+{ 
+  pinMode(TOF_REQUEST, OUTPUT);
+  pinMode(TOF_SENT, INPUT);
+  
+  if (tof_distance.begin() == false)
+  {
+    Serial.println("Sensor failed to initialize. Check wiring.");
+    while (1); //Freeze!
+  }
+}
+
+int getDistance_tof()
+{
+  tof_distance.takeMeasurement(); //Tell sensor to take measurement
+  return tof_distance.getDistance();
+}
+
+int requestTOF(){
+  int last3 = 0;
+  int first3 = 0;
+  digitalWrite(TOF_REQUEST, HIGH);  //I want data
+  while(!digitalRead(TOF_SENT)){ // while I haven't received anything
+    while(!Serial.available());
+    last3 = Serial.read();
+    while(!Serial.available());
+    first3 = Serial.read();
+  }
+  digitalWrite(TOF_REQUEST, LOW);
+  return (last3 + (first3 << 8));
+}
+
+// MOTOR FUNCTIONS
+
+void init_motor()
+{
+  // Motor Setup
+  pinMode(in1, OUTPUT);
+  pinMode(in2, OUTPUT); 
+  pinMode(in3, OUTPUT);
+  pinMode(in4, OUTPUT);
+  pinMode(in5, OUTPUT);
+  pinMode(in6, OUTPUT); 
+  pinMode(in7, OUTPUT);
+  pinMode(in8, OUTPUT);
+  pinMode(en1, OUTPUT); // RL
+  pinMode(en2, OUTPUT); // FL
+  pinMode(en3, OUTPUT); // FR
+  pinMode(en4, OUTPUT); // RR
+
+  // Initial direction (forwards)
+  digitalWrite(in1, HIGH);
+  digitalWrite(in2, LOW);
+  digitalWrite(in3, HIGH);
+  digitalWrite(in4, LOW);
+  digitalWrite(in5, HIGH);
+  digitalWrite(in6, LOW);
+  digitalWrite(in7, HIGH);
+  digitalWrite(in8, LOW);
+}
+
+void stopMotors()
+{
+  analogWrite(en4, 0);
+  analogWrite(en3, 0);
+  analogWrite(en2, 0);
+  analogWrite(en1, 0);
+}
+
+void setForwards()
+{
+  digitalWrite(in1, HIGH);
+  digitalWrite(in2, LOW);
+  digitalWrite(in3, HIGH);
+  digitalWrite(in4, LOW);
+  digitalWrite(in5, HIGH);
+  digitalWrite(in6, LOW);
+  digitalWrite(in7, HIGH);
+  digitalWrite(in8, LOW);
+}
+
+void setBackwards()
+{
+  digitalWrite(in1, LOW);
+  digitalWrite(in2, HIGH);
+  digitalWrite(in3, LOW);
+  digitalWrite(in4, HIGH);
+  digitalWrite(in5, LOW);
+  digitalWrite(in6, HIGH);
+  digitalWrite(in7, LOW);
+  digitalWrite(in8, HIGH);
+}
+
+void setClockwise()
+{
+  digitalWrite(in1, HIGH);
+  digitalWrite(in2, LOW);
+  digitalWrite(in3, HIGH);
+  digitalWrite(in4, LOW);
+  digitalWrite(in5, LOW);
+  digitalWrite(in6, HIGH);
+  digitalWrite(in7, LOW);
+  digitalWrite(in8, HIGH);
+}
+
+void setCounterClockwise()
+{
+  digitalWrite(in1, LOW);
+  digitalWrite(in2, HIGH);
+  digitalWrite(in3, LOW);
+  digitalWrite(in4, HIGH);
+  digitalWrite(in5, HIGH);
+  digitalWrite(in6, LOW);
+  digitalWrite(in7, HIGH);
+  digitalWrite(in8, LOW);
+}
+
+void setMotorPWM(int pwm_r, int pwm_l)
+{
+  float fl_fac = 1;
+  float rl_fac = -1.6094*pow(10, -7)*pow(pwm_l, 3) + 0.00012148*pow(pwm_l, 2) - 0.026964*pwm_l + 2.5528;
+  float fr_fac = -1.3899*pow(10, -7)*pow(pwm_r, 3) + 0.00010587*pow(pwm_r, 2) - 0.023731*pwm_r + 2.3867;
+  float rr_fac = -3.3351*pow(10, -7)*pow(pwm_r, 3) + 0.00023117*pow(pwm_r, 2) - 0.051059*pwm_r + 4.4313;
+
+  float pwm_rl = rl_fac * pwm_l;
+  float pwm_fl = fl_fac * pwm_l;
+  float pwm_fr = fr_fac * pwm_r;
+  float pwm_rr = rr_fac * pwm_r;
+
+  pwm_rl = constrain(pwm_rl, -255, 255);
+  pwm_fl = constrain(pwm_fl, -255, 255);
+  pwm_fr = constrain(pwm_fr, -255, 255);
+  pwm_rr = constrain(pwm_rr, -255, 255);
+
+//  Serial.print("RL: ");
+//  Serial.print(pwm_rl);
+//  Serial.print("  FL: ");
+//  Serial.print(pwm_fl);
+//  Serial.print("  FR: ");
+//  Serial.print(pwm_fr);
+//  Serial.print("  RR: ");
+//  Serial.println(pwm_rr);
+  
+  analogWrite(en1,pwm_rl);
+  analogWrite(en2,pwm_fl);
+  analogWrite(en3,pwm_fr);
+  analogWrite(en4,pwm_rr);
+}
+
+/*
+ *  bool dir 0 goes forwards, 1 goes backwards
+ */
+void goStraight(int dir, int counter)
+{
+  int delayTime_millis = 50;
+  float curr_angle = 0;
+  float prev_angle_x = 0;
+  float error = 0, errorSum = 0;
+  float sampleTime = 0.05;
+  unsigned long currTime = 0, prevTime = 0;
+  
+  imu::Vector<3> euler = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
+
+
+  int pwm_r = 250;
+  int pwm_l = 250;
+
+
+  if (dir == 0)
+  {
+    setForwards();
+  }
+  else if (dir == 1)
+  {
+    setBackwards();
+  }
+
+
+  for (int i = 0; i < counter; i++)
+  {
+    currTime = millis();
+    sampleTime = (currTime - prevTime)/1000.0;
+    prevTime = currTime;
+    
+    // Motor Movement
+    setMotorPWM(pwm_r, pwm_l);
+  
+    // IMU Data
+    euler = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
+    curr_angle = euler.x();
+    
+    // Note: Clockwise is +ive
+    error = curr_angle - target_angle_x;
+  
+    // Condition if angle shifts from 0 to 359...
+    if (error > 300) {
+      error = error - 360;
+    }
+    
+    if (error < -300) {error = error + 360;}
+  
+    errorSum = errorSum + error;
+    errorSum = constrain(errorSum, -300, 300);
+
+    if (dir == 0)
+    {
+      pwm_r = pwm_r + ((Kp*error) + (Ki*errorSum*sampleTime) - (Kd*(curr_angle - prev_angle_x)/sampleTime));
+      pwm_l = pwm_l - ((Kp*error) + (Ki*errorSum*sampleTime) - (Kd*(curr_angle - prev_angle_x)/sampleTime));
+    }
+    else if (dir == 1)
+    {
+      pwm_r = pwm_r - ((Kp*error) + (Ki*errorSum*sampleTime) - (Kd*(curr_angle - prev_angle_x)/sampleTime));
+      pwm_l = pwm_l + ((Kp*error) + (Ki*errorSum*sampleTime) - (Kd*(curr_angle - prev_angle_x)/sampleTime));
+    }
+  
+    prev_angle_x = curr_angle;
+  
+    pwm_r = constrain(pwm_r, -255, 255);
+    pwm_l = constrain(pwm_l, -255, 255);
+
+    if ((millis() - currTime) < delayTime_millis)
+    {
+      delay(delayTime_millis - (millis() - currTime));
+    }
+  }
+
+  
+  stopMotors();
+
+  delay(1000);
+
+  // Angle Correction
+  euler = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
+  curr_angle = euler.x();
+
+
+  if (curr_angle - target_angle_x > 200) {curr_angle = curr_angle - 360;}
+  if (curr_angle - target_angle_x < -200) {curr_angle = curr_angle + 360;}
+  
+  if (abs(curr_angle - target_angle_x) > 1)
+  {
+    if (curr_angle < target_angle_x)
+    {
+      turnAngle(0, abs(curr_angle - target_angle_x), 1);
+    }
+    else if (curr_angle > target_angle_x)
+    {
+      turnAngle(1, abs(curr_angle - target_angle_x), 1);
+    }
+  }
+  
+}
+
+///*
+// *  bool dir 0 goes forwards, 1 goes backwards
+// */
+//void goStraight(int dir)
+//{
+//  int delayTime_millis = 50;
+//  float curr_angle = 0;
+//  float prev_angle_x = 0;
+//  float error = 0, errorSum = 0;
+//  float sampleTime = 0.05;
+//  unsigned long currTime = 0, prevTime = 0;
+//
+//  int ultra_dist_left_init = sonar_dist(9);
+//  int ultra_dist_right_init = sonar_dist(13);
+//
+//  int ultra_dist_left = 0;
+//  int ultra_dist_right = 0;
+//  
+//  int tof_front = 0;
+//  int tof_back = 0;
+//  int samples = 3;
+//
+//  for (int i = 0; i < samples; i++){
+//    tof_front += getDistance_tof()/samples;
+//    tof_back += requestTOF()/samples;
+//    ultra_dist_left += sonar_dist(9)/samples;
+//    ultra_dist_right += sonar_dist(13)/samples;
+//  }
+//  
+//  int current_front_dist[samples] = {0};
+//  int current_back_dist[samples]  = {0};
+//  
+//  for (int i = 0; i < samples; i++)
+//  {
+//    current_front_dist[i] = tof_front;
+//    current_back_dist[i] = tof_back;
+//  }
+//
+//  int current_ultra_dist_left[samples] = {ultra_dist_left, ultra_dist_left, ultra_dist_left};
+//  int current_ultra_dist_right[samples] = {ultra_dist_right, ultra_dist_right, ultra_dist_right};
+//
+//  Serial.print("Sonar Left: ");
+//  Serial.print(ultra_dist_left_init);
+//  Serial.print("  Sonar Right: ");
+//  Serial.print(ultra_dist_right_init);
+//  Serial.print("  TOF Front: ");
+//  Serial.print(tof_front);
+//  Serial.print("  TOF Back: ");
+//  Serial.println(tof_back);
+//  
+//  int counter = 0;
+//  int front_avg = tof_front;
+//  int back_avg = tof_back;
+//  int ultra_left_avg = ultra_dist_left;
+//  int ultra_right_avg = ultra_dist_right;
+//  int avg_error = 0;
+//
+//  
+//  int curr_dist = 0;
+//  
+//  imu::Vector<3> euler = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
+//
+//  int pwm_r = 250;
+//  int pwm_l = 250;
+//
+//  if (dir == 0)
+//  {
+//    setForwards();
+//  }
+//  else if (dir == 1)
+//  {
+//    setBackwards();
+//  }
+//
+//
+////  for (int i = 0; i < counter; i++)
+//  do
+//  {
+//    currTime = millis();
+//    sampleTime = (currTime - prevTime)/1000.0;
+//    prevTime = currTime;
+//    
+//    // Motor Movement
+//    setMotorPWM(pwm_r, pwm_l);
+//  
+//    // IMU Data
+//    euler = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
+//    curr_angle = euler.x();
+//    
+//    // Note: Clockwise is +ive
+//    error = curr_angle - target_angle_x;
+//  
+//    // Condition if angle shifts from 0 to 359...
+//    if (error > 300) {
+//      error = error - 360;
+//    }
+//    
+//    if (error < -300) {error = error + 360;}
+//  
+//    errorSum = errorSum + error;
+//    errorSum = constrain(errorSum, -300, 300);
+//
+//    if (dir == 0)
+//    {
+//      pwm_r = pwm_r + ((Kp*error) + (Ki*errorSum*sampleTime) - (Kd*(curr_angle - prev_angle_x)/sampleTime));
+//      pwm_l = pwm_l - ((Kp*error) + (Ki*errorSum*sampleTime) - (Kd*(curr_angle - prev_angle_x)/sampleTime));
+//    }
+//    else if (dir == 1)
+//    {
+//      pwm_r = pwm_r - ((Kp*error) + (Ki*errorSum*sampleTime) - (Kd*(curr_angle - prev_angle_x)/sampleTime));
+//      pwm_l = pwm_l + ((Kp*error) + (Ki*errorSum*sampleTime) - (Kd*(curr_angle - prev_angle_x)/sampleTime));
+//    }
+//  
+//    prev_angle_x = curr_angle;
+//  
+//    pwm_r = constrain(pwm_r, -255, 255);
+//    pwm_l = constrain(pwm_l, -255, 255);
+//
+//    front_avg -= current_front_dist[counter]/samples;
+//    back_avg -= current_back_dist[counter]/samples;
+//    ultra_left_avg -= current_ultra_dist_left[counter]/samples;
+//    ultra_right_avg -= current_ultra_dist_right[counter]/samples;
+//    
+//    current_front_dist[counter] = getDistance_tof();
+//    current_back_dist[counter] = requestTOF();
+//    current_ultra_dist_left[counter] = sonar_dist(9);
+//    current_ultra_dist_right[counter] = sonar_dist(13);
+//        
+//    front_avg += current_front_dist[counter]/samples;
+//    back_avg += current_back_dist[counter]/samples;
+//    ultra_left_avg += current_ultra_dist_left[counter]/samples;
+//    ultra_right_avg += current_ultra_dist_right[counter]/samples;
+//    counter = (counter + 1)%samples;
+//    // + abs(tof_back - back_avg);// + abs(ultra_left_avg - ultra_dist_left_init);// + abs(ultra_right_avg - ultra_dist_right_init);
+//    //avg_error = (abs(tof_front - front_avg) + abs(tof_back - back_avg) + abs(current_ultra_dist_right - ultra_dist_right_init) + abs(current_ultra_dist_left - ultra_dist_left_init))/4;
+//    avg_error = (ultra_dist_left_init - ultra_left_avg)  + (tof_front - front_avg) + (back_avg - tof_back) + (ultra_dist_right_init - ultra_right_avg);
+////    delay(delayTime_millis);
+//  } while(avg_error/4 < 200);
+//
+//  
+//  stopMotors();
+//  delay(1000);
+//
+//  Serial.print("Sonar Left: ");
+//  Serial.print(ultra_left_avg);
+//  Serial.print("  Sonar Right: ");
+//  Serial.print(ultra_right_avg);
+//  Serial.print("  TOF Front: ");
+//  Serial.print(front_avg);
+//  Serial.print("  TOF Back: ");
+//  Serial.println(back_avg);
+//  
+////
+////  // Angle Correction
+////  euler = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
+////  curr_angle = euler.x();
+////
+////
+////  if (curr_angle - target_angle_x > 200) {curr_angle = curr_angle - 360;}
+////  if (curr_angle - target_angle_x < -200) {curr_angle = curr_angle + 360;}
+////  
+////  if (abs(curr_angle - target_angle_x) > 1)
+////  {
+////    if (curr_angle < target_angle_x)
+////    {
+////      turnAngle(0, abs(curr_angle - target_angle_x));
+////    }
+////    else if (curr_angle > target_angle_x)
+////    {
+////      turnAngle(1, abs(curr_angle - target_angle_x));
+////    }
+////  }
+//  
+//}
+
+/*
+ * bool dir:  0 is clockwise, 1 is counter-clockwise
+ * 
+ * angle MUST be positive!!!
+ * 
+ */
+void turnAngle(bool dir, float angle, bool angle_correct)
+{
+  float curr_angle = 0; 
+  int pwm_r = 250;
+  int pwm_l = 250;
+
+  curr_angle = target_angle_x;
+  if (!angle_correct)  target_angle_x = (target_angle_x + angle - (2*dir)*angle + 360);
+  while(target_angle_x >= 360.0) target_angle_x -= 360.0;
+  
+  // Setting Direction
+  if (dir == 0)
+  {
+    // Modifying angle to account for momentum to stop
+    if (angle > 6)
+    {
+      angle = angle - 6;
+    }
+    
+    angle = curr_angle + angle;
+    if(angle >= 360.0) angle -= 360.0;
+    
+    setClockwise();
+    setMotorPWM(pwm_r, pwm_l);
+
+    // For example, from 350 to 80 when going positive direction, go from 350 to 360, then 360=0, then 0 to 80 later
+    while (curr_angle - angle > 0)
+    {
+      imu::Vector<3> euler = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
+      curr_angle = euler.x();
+    }
+  
+    while (curr_angle < angle)
+    {
+      imu::Vector<3> euler = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
+      curr_angle = euler.x();
+    }
+  }
+
+  else if (dir == 1)
+  {
+    // Modifying angle to account for momentum to stop
+    if (angle > 6)
+    {
+      angle = angle - 5;
+    }
+    
+    angle = curr_angle - angle; // Modifying angle to account for momentum to stop
+    // Check for < 0
+    if (angle < 0) {angle = angle + 360;}
+    
+    setCounterClockwise();
+
+    setMotorPWM(pwm_r, pwm_l);
+
+    // For example, from 80 to 350 when going negative direction, go from 80 to 0, then 0=360, then 360 to 350 later
+    while (curr_angle - angle < 0)
+    {
+      imu::Vector<3> euler = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
+      curr_angle = euler.x();
+    }
+  
+    while (curr_angle > angle)
+    {
+      imu::Vector<3> euler = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
+      curr_angle = euler.x();
+    }
+  }
+  
+  stopMotors();
+}
+
+/*
+ *  Continuous Move
+ */
+void continuousAngle(bool dir)
+{
+  int pwm_r = 250;
+  int pwm_l = 250;
+  
+  // Setting Direction
+  if (dir == 0)
+  {
+    setClockwise();
+      
+    setMotorPWM(pwm_r, pwm_l);
+  }
+
+  else if (dir == 1)
+  {
+    setCounterClockwise();
+      
+    setMotorPWM(pwm_r, pwm_l);
+  }
+}
+
 ////////////////////////////////////////////
 
 
 void setup()
 {
-  Serial.begin(9600);
-  //init_US_sensor();
-  detect_objects();
-  pinMode(LED_BUILTIN, OUTPUT);
-  pinMode(US_DATA, INPUT);
+  Serial.begin(19200);
+  init_colour_sensor();
+  init_tof();
+  init_motor();
+  
+//  detect_objects();
 }
 
 void loop()
 {
-  //Serial.println("STARTING LOOP");
-  //INITIALIZATION
+//  Serial.println("STARTING LOOP");
+//  //INITIALIZATION
 //    tile board[DIMENSION][DIMENSION];
 //    createBoard(board,DIMENSION);
 //    currentx = STARTINGX;
 //    currenty = STARTINGY;
-
-  //SETTING MOCK COORDINATES - FOR TESTING PURPOSES ONLY
-//    mockFire = &board[1][3];
-//    mockFood = &board[1][4];
-//    mockGroup = &board[4][5];
-//    mockSurvivor = &board[1][0];
+//
+//  //SETTING MOCK COORDINATES - FOR TESTING PURPOSES ONLY
+//mockFire = &board[3][4];
+//    mockFood = &board[4][4];
+//    mockGroup = &board[5][1];
+//    mockSurvivor = &board[0][4];
 //    mockSand1 = mockFood;
-//    mockSand2 = &board[4][1];
-//    mockSand3 = &board[3][3];
-//    mockSand4 = NULL;
-//    mockWater1 = &board[2][0];
-//    mockWater2 = &board[4][4];
-//    mockWater3 = &board[0][3];
-//    mockWater4 = NULL;
+//    mockSand2 = NULL;
+//    mockSand3 = &board[1][1];
+//    mockSand4 = &board[3][2];
+//    mockWater1 = &board[0][3];
+//    mockWater2 = &board[3][5];
+//    mockWater3 = NULL;
+//    mockWater4 = &board[4][1];
+//
+//
+//
+//
 //  roam(board);
-//  //while(true);
+//  while(true);
 //    delay(10000000);
 
 
 //Current Testing
-//detect_objects();
-digitalWrite(LED_BUILTIN,(digitalRead(19)));
+//  detect_objects();
+  
+  delay(1000);
+  goStraight(0, 36);
+  
+  while(true);  
 }
