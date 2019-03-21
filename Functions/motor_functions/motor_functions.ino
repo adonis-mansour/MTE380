@@ -6,20 +6,20 @@
 
 // Motor Definitoions
 // Right Motors
-#define in1 6
-#define in2 5
-#define in3 4
-#define in4 3
-#define en1 7
-#define en2 2
+#define in1 32
+#define in2 30
+#define in3 28
+#define in4 26
+#define en1 12 //RL
+#define en2 11 //FL
 
 // Left Motors
-#define in5 9
-#define in6 8
-#define in7 13
-#define in8 12
-#define en3 10
-#define en4 11
+#define in5 33
+#define in6 31
+#define in7 29
+#define in8 27
+#define en3 10 // FR
+#define en4 4  // RR
 
 // PID Consts
 #define Kp 3
@@ -128,10 +128,34 @@ void setCounterClockwise()
 
 void setMotorPWM(int pwm_r, int pwm_l)
 {
-    analogWrite(en1,pwm_l);
-    analogWrite(en2,pwm_l);
-    analogWrite(en3,pwm_r);
-    analogWrite(en4,pwm_r);
+  float fl_fac = 1;
+  float rl_fac = -1.6094*pow(10, -7)*pow(pwm_l, 3) + 0.00012148*pow(pwm_l, 2) - 0.026964*pwm_l + 2.5528;
+  float fr_fac = -1.3899*pow(10, -7)*pow(pwm_r, 3) + 0.00010587*pow(pwm_r, 2) - 0.023731*pwm_r + 2.3867;
+  float rr_fac = -3.3351*pow(10, -7)*pow(pwm_r, 3) + 0.00023117*pow(pwm_r, 2) - 0.051059*pwm_r + 4.4313;
+
+  float pwm_rl = rl_fac * pwm_l;
+  float pwm_fl = fl_fac * pwm_l;
+  float pwm_fr = fr_fac * pwm_r;
+  float pwm_rr = rr_fac * pwm_r;
+
+  pwm_rl = constrain(pwm_rl, -255, 255);
+  pwm_fl = constrain(pwm_fl, -255, 255);
+  pwm_fr = constrain(pwm_fr, -255, 255);
+  pwm_rr = constrain(pwm_rr, -255, 255);
+
+  Serial.print("RL: ");
+  Serial.print(pwm_rl);
+  Serial.print("  FL: ");
+  Serial.print(pwm_fl);
+  Serial.print("  FR: ");
+  Serial.print(pwm_fr);
+  Serial.print("  RR: ");
+  Serial.println(pwm_rr);
+  
+  analogWrite(en1,pwm_rl);
+  analogWrite(en2,pwm_fl);
+  analogWrite(en3,pwm_fr);
+  analogWrite(en4,pwm_rr);
 }
 
 /*
@@ -146,8 +170,8 @@ void goStraight(int dir, int counter)
   float sampleTime = 0.05;
   unsigned long currTime = 0, prevTime = 0;
 
-  int pwm_r = 200;
-  int pwm_l = 200;
+  int pwm_r = 250;
+  int pwm_l = 250;
 
   imu::Vector<3> euler = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
   target_angle_x = euler.x();
@@ -241,8 +265,8 @@ void goStraight(int dir, int counter)
 void turnAngle(bool dir, float angle)
 {
   float angle_x = 0;
-  int pwm_r = 140;
-  int pwm_l = 140;
+  int pwm_r = 250;
+  int pwm_l = 250;
   
   imu::Vector<3> euler = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
   angle_x = euler.x();
@@ -317,8 +341,8 @@ void turnAngle(bool dir, float angle)
  */
 void continuousAngle(bool dir)
 {
-  int pwm_r = 140;
-  int pwm_l = 140;
+  int pwm_r = 250;
+  int pwm_l = 250;
   
   // Setting Direction
   if (dir == 0)
@@ -341,11 +365,13 @@ void loop(void)
   delay(500);
   goStraight(0, 50);
   delay(500);
-  turnAngle(0, 90);
+  turnAngle(0, 180);
   delay(500);
-  turnAngle(1,90);
+  goStraight(0,50);
   delay(500);
-  goStraight(1,50);
+  turnAngle(1, 180);
+
+
   
   while(true);
 }
