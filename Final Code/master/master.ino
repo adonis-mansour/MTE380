@@ -19,8 +19,8 @@
 // FLAME SENSOR DEFS
 #define FLAME1 50 
 #define FLAME2 48 
-#define FLAME3 51 
-#define FLAME4 49 
+#define FLAME3 51
+#define FLAME4 39 
 #define FAN 52
 
 //ULTRASONIC DEFS
@@ -1246,7 +1246,6 @@ int sonar_dist(int echoPinSensor)
 // HALL EFFECT
 bool Mag_detect() {
 
-  long NOFIELD = 512;
   float TOMILLIGAUSS = 3.756010;
   //int pin_array[9] = {HE0, HE1, HE2, HE3, HE4, HE5, HE6, HE7, HE8};
   float gauss[9] = {0};
@@ -1254,32 +1253,51 @@ bool Mag_detect() {
   int no_mag = 0;
   int threshold = 7;
 
-  for (int i = 0; i < 13; i++ ) {
+  for (int i = 0; i < 15; i++ ) {
     delay(100);
-    gauss[0] = (analogRead(HE0) - 507) * TOMILLIGAUSS;
-    Serial.print(gauss[0]);
-    Serial.println(i);
-    gauss[1] = (analogRead(HE1) - 507) * TOMILLIGAUSS;
-    gauss[2] = (analogRead(HE2) - 506) * TOMILLIGAUSS;
-    gauss[3] = (analogRead(HE3) - 506) * TOMILLIGAUSS;
-    gauss[4] = (analogRead(HE4) - 505) * TOMILLIGAUSS;
-    gauss[5] = (analogRead(HE5) - 509) * TOMILLIGAUSS;
-    gauss[6] = (analogRead(HE6) - 503) * TOMILLIGAUSS;
-    gauss[7] = (analogRead(HE7) - 507) * TOMILLIGAUSS;
-    gauss[8] = (analogRead(HE8) - 508) * TOMILLIGAUSS;
-  }
+    gauss[0] = (analogRead(HE0) - 506) * TOMILLIGAUSS;
+    gauss[1] = (analogRead(HE1) - 510) * TOMILLIGAUSS;
+    gauss[2] = (analogRead(HE2) - 508) * TOMILLIGAUSS;
+    gauss[3] = (analogRead(HE3) - 509) * TOMILLIGAUSS;
+    gauss[4] = (analogRead(HE4) - 508) * TOMILLIGAUSS;
+    gauss[5] = (analogRead(HE5) - 511) * TOMILLIGAUSS;
+    gauss[6] = (analogRead(HE6) - 506) * TOMILLIGAUSS;
+    gauss[7] = (analogRead(HE7) - 510) * TOMILLIGAUSS;
+    gauss[8] = (analogRead(HE8) - 511) * TOMILLIGAUSS;
+//    Serial.print(gauss[0]  );
+//    Serial.print( "  " );
+//     Serial.print(gauss[1]);
+//     Serial.print( "  " );
+//      Serial.print(gauss[2]);
+//      Serial.print( "  " );
+//       Serial.print(gauss[3]);
+//       Serial.print( "  " );
+//        Serial.print(gauss[4]);
+//        Serial.print( "  " );
+//         Serial.print(gauss[5]);
+//         Serial.print( "  " );
+//          Serial.print(gauss[6]);
+//          Serial.print( "  " );
+//           Serial.print(gauss[7]);
+//           Serial.print( "  " );
+//            Serial.println(gauss[8]);
+   
+  
 
-  if ( (gauss[0] < -7) or (gauss[1] < -7) or (gauss[2] < -7) or (gauss[3] < -7) or (gauss[4] < -7) or (gauss[5] < -7) or (gauss[6] < -7) or (gauss[7] < -7) or (gauss[8] < -7)) {
-    mag++;
+    if ( (gauss[0] < -7) || (gauss[1] < -7) || (gauss[2] < -7) || (gauss[3] < -7) || (gauss[4] < -7) || (gauss[5] < -7) || (gauss[6] < -7) || (gauss[7] < -7) || (gauss[8] < -7)) {
+      mag++;
+    }
+    else if ( (gauss[0] > 7) || (gauss[1] > 7) || (gauss[2] > 7) || (gauss[3] > 7) || (gauss[4] > 7) || (gauss[5] > 7) || (gauss[6] > 7) || (gauss[7] > 7) || (gauss[8] > 7)) {
+      mag++;
+       
+    }
+    else {
+      no_mag++;
+    }
+//      Serial.print(mag);
+//      Serial.println(no_mag);
   }
-  else if ( (gauss[0] > 7) or (gauss[1] > 7) or (gauss[2] > 7) or (gauss[3] > 7) or (gauss[4] > 7) or (gauss[5] > 7) or (gauss[6] > 7) or (gauss[7] > 7) or (gauss[8] > 7)) {
-    mag++;
-  }
-  else {
-    no_mag++;
-  }
-    
-  if (mag >= 3)
+  if (mag > 4)
     return 1;
   else if (no_mag >= 10)
     return 0;
@@ -1291,7 +1309,7 @@ void init_colour_sensor() {
   pinMode(Colour_SENT, INPUT);
 }
 
-unsigned int requestColour(){
+int requestColour(){
   int colour = 0;
   digitalWrite(Colour_REQUEST, HIGH);  //I want data
 
@@ -1331,60 +1349,23 @@ bool Detect_Flame() {
   if (fire4 == LOW) {
     Serial.print("Fire4    ");
   }
+
+  bool fire_detected = false;
+  
   if(fire1 == LOW || fire2 == LOW || fire3 == LOW ||  fire4 == LOW) {
     digitalWrite(LED_BUILTIN, HIGH);
-    digitalWrite(FAN, HIGH);
+    fan_control(1);
+
     Serial.println("Fire");
     return true;
     //delay(200); // ??? IS THIS DELAY REQUIRED?
   }else{
     Serial.println("Nothing");
     digitalWrite(LED_BUILTIN, LOW);
-    digitalWrite(FAN, LOW);
+    fan_control(0);
     return false;
   }
   delay(200);
-}
-
-// IR FUNCTION
-float Read_Distance(int sensor, int values[]) {
-  volts = analogRead(sensor)*0.0048828125;  // value from sensor * (5/1024)
-    IR_distance = 13*pow(volts, -1);             // worked out from datasheet graph
-    delay(10); // slow down serial port 
-
-    values[IR_counter] = IR_distance;
-    IR = 0;
-    for (int i=0; i<NumOfValues; i++) {
-      IR = IR+values[i];
-    }
-    IR = (IR)/NumOfValues;
-       
-    Serial.print(IR);               // print the distance   
-    return IR;
-}
-int detect_terrain() {
-  //Front
-  Serial.print("Front    ");
-  terrain[0] = Read_Distance(sensor0, IR0_values);
-  Serial.print("   ");
-  
-  //Right
-  Serial.print("Right    ");
-  terrain[1] = Read_Distance(sensor1, IR1_values);
-  Serial.print("   ");
-  
-  //Left
-  Serial.print("Left    ");
-  terrain[2] = Read_Distance(sensor2, IR2_values);
-  Serial.print("   ");
-  
-  //Back
-  Serial.print("Rear    ");
-  terrain[3] = Read_Distance(sensor3, IR3_values);
-  IR_counter = (IR_counter + 1)%NumOfValues;
-  Serial.print("   ");
-  
-  delay(50); 
 }
 
 // TURN FAN ON FUNCTION   // 1 = ON, 0 = OFF
@@ -1392,11 +1373,11 @@ int detect_terrain() {
 void fan_control(bool mode) {
   if (mode == 1) {
     digitalWrite(FAN, HIGH);
+    delay(5000);
   } else if (mode == 0) {
     digitalWrite(FAN, LOW);
   }
 }
-
 
 // TOF SENSOR
 void init_tof()
@@ -1432,6 +1413,21 @@ int requestTOF(){
 }
 
 // MOTOR FUNCTIONS
+
+void init_IMU()
+{
+    /* Initialise the sensor */
+  if(!bno.begin())
+  {
+    /* There was a problem detecting the BNO055 ... check your connections */
+    Serial.print("Ooops, no BNO055 detected ... Check your wiring or I2C ADDR!");
+    while(1);
+  }
+  
+  delay(1000);
+    
+  bno.setExtCrystalUse(true);
+}
 
 void init_motor()
 {
@@ -1551,7 +1547,7 @@ void setMotorPWM(int pwm_r, int pwm_l)
 /*
  *  bool dir 0 goes forwards, 1 goes backwards
  */
-void goStraight(int dir, int counter)
+void goStraight(int dir)
 {
   int delayTime_millis = 50;
   float curr_angle = 0;
@@ -1559,6 +1555,23 @@ void goStraight(int dir, int counter)
   float error = 0, errorSum = 0;
   float sampleTime = 0.05;
   unsigned long currTime = 0, prevTime = 0;
+
+  int samples = 5;
+  int sonar_counter = 0;
+  int sonar_array[samples] = {0};
+  int sum = 0;
+  int curr_dist = 0;
+  float avg_dist = 0;
+  bool limit_reached = false;
+  float std = 0;
+  float true_dist = 0;
+  int init_distance = 0;
+  int init_time = 0;
+  int temp = 0;
+  float diff = 0;
+  float diffSum = 0;
+  int diffCounter = 0;
+  float distanceTravelled = 0;
   
   imu::Vector<3> euler = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
 
@@ -1576,18 +1589,114 @@ void goStraight(int dir, int counter)
     setBackwards();
   }
 
+  // Get init distance
+  while (init_distance == 0)
+  {
+    curr_dist = sonar_dist(9);
+    //curr_dist = getDistance_tof();
+    
+    if (curr_dist > 0 && curr_dist < 2000)
+    {
+      sum -= sonar_array[sonar_counter];
+      sum += curr_dist;
+      sonar_array[sonar_counter] = curr_dist;
+      sonar_counter = (sonar_counter + 1)%samples;
 
-  for (int i = 0; i < counter; i++)
+      if (limit_reached)
+      {
+        avg_dist = (float)sum/samples;
+
+        std = 0;
+        for (int i = 0; i < samples; i++)
+        {
+          std += pow((sonar_array[i] - avg_dist), 2);
+        }
+        std = sqrt(std/(samples - 1));
+
+        if (std/avg_dist < 0.033)
+        {
+          init_distance = avg_dist;
+          true_dist = avg_dist;
+        }
+      }
+
+      if (sonar_counter == samples - 1) limit_reached = true;
+  
+    } 
+  }
+
+  init_time = millis();
+
+  do
   {
     currTime = millis();
     sampleTime = (currTime - prevTime)/1000.0;
     prevTime = currTime;
+    diffCounter++;
+
+    curr_dist = sonar_dist(9); //raw value
+    //curr_dist = getDistance_tof();
+    
+    if (curr_dist > 0 && curr_dist < 2000)
+    {
+      sum -= sonar_array[sonar_counter];
+      sum += curr_dist;
+      sonar_array[sonar_counter] = curr_dist;
+
+      avg_dist = (float)sum/samples; //column B
+      std = 0;
+      for (int i = 0; i < samples; i++)
+      {
+        std += pow((sonar_array[i] - avg_dist), 2);
+      }
+      std = sqrt(std/(samples - 1));
+
+      if (std/avg_dist < 0.05) //need to modify
+      {
+        //updating true average value
+        true_dist = avg_dist;
+        
+        //calculating corrected diff
+        diff = (float)sonar_array[(sonar_counter + (samples-1))%samples] - curr_dist;
+        //Serial.print("DIFF VALID -----  ");
+      }
+      else {
+        //diff = average of all previous diffs
+        diff = (float)diffSum/diffCounter;
+      }
+      diffSum += diff;
+      distanceTravelled += diff;
+        Serial.print(" Raw Data value: ");
+        Serial.print(curr_dist);
+        Serial.print("  TOF Sensor reading: ");
+        Serial.println(getDistance_tof());
+//        Serial.print(" STD: ");
+//        Serial.print(std);
+//        Serial.print(" STD/AVG_DIST: ");
+//        Serial.print(std/avg_dist);
+//        Serial.print(" Diff value: ");
+//        Serial.print(diff);
+//        Serial.print(" Diff Prev Dist: ");
+//        Serial.print(sonar_array[(sonar_counter + (samples-1))%samples]);
+//        Serial.print(" Diff Curr Dist: ");
+//        Serial.print(curr_dist);
+//      Serial.print("  Distance Travelled ");
+//      Serial.print(distanceTravelled);
+
+      sonar_counter = (sonar_counter + 1)%samples;
+
+//      Serial.print("Diff AVG: ");
+//      Serial.println((float)diffSum/diffCounter);
+
+    }
+
+    if (true_dist < 120) break;
     
     // Motor Movement
     setMotorPWM(pwm_r, pwm_l);
   
     // IMU Data
-    euler = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
+    imu::Vector<3> euler = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
     curr_angle = euler.x();
     
     // Note: Clockwise is +ive
@@ -1623,10 +1732,22 @@ void goStraight(int dir, int counter)
     {
       delay(delayTime_millis - (millis() - currTime));
     }
-  }
 
+    temp = millis() - init_time;   
+
+//  } while ((((distanceTravelled) < 250 && (temp) < 1850)) || temp < 1000);
+  } while ((((distanceTravelled) < 250 && (temp) < 2000)) || temp < 1500);
   
   stopMotors();
+
+  Serial.print("Initial Distance: ");
+  Serial.print(init_distance);
+  Serial.print("  Final measured distance: ");
+  Serial.print(true_dist);
+  Serial.print("  Final measured time: ");
+  Serial.print(temp);
+  Serial.print("  Distance Travelled: ");
+  Serial.println(distanceTravelled);
 
   delay(1000);
 
@@ -1936,14 +2057,20 @@ void setup()
 {
   Serial.begin(19200);
   init_colour_sensor();
+  init_flame_sensor();
   init_tof();
   init_motor();
+  init_IMU();
   
 //  detect_objects();
 }
 
-void loop()
-{
+void loop() {
+  Serial.println(requestColour());
+  delay(500);
+  
+  //bool mag = Mag_detect();
+//Serial.println(mag);
 //  Serial.println("STARTING LOOP");
 //  //INITIALIZATION
 //    tile board[DIMENSION][DIMENSION];
@@ -1965,7 +2092,7 @@ void loop()
 //    mockWater3 = NULL;
 //    mockWater4 = &board[4][1];
 //
-//
+//Detect_Flame();
 //
 //
 //  roam(board);
@@ -1975,9 +2102,9 @@ void loop()
 
 //Current Testing
 //  detect_objects();
-  
-  delay(1000);
-  goStraight(0, 36);
-  
-  while(true);  
+
+ // goStraight(0);
+//  Serial.println(getDistance_tof());
+//  delay(100);
+ // while(true);  
 }
