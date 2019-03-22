@@ -489,6 +489,7 @@ void moveForward(){
         currentx--;
         currenty++;
     }
+    goStraight(0);
 }
 
 //MOVE BACKWARDS
@@ -500,41 +501,48 @@ void moveBackward(){
 void rr45(){
     orientation = (orientation+1)%8;
     Serial.print("Rotating right 45 degrees ");
+    turnAngle(0,45,0);
 }
 
 //ROTATE LEFT 45 DEGREES
 void rl45(){
     orientation = (orientation+7)%8;
     Serial.print("Rotating left 45 degrees ");
+    turnAngle(1,45,0);
 }
 
 //ROTATE RIGHT 90 DEGREES
 void rr90(){
     orientation = (orientation+2)%8;
     Serial.print("Rotating right 90 degrees ");
+    turnAngle(0,90,0);
 }
 
 //ROTATE LEFT 90 DEGREES
 void rl90(){
     orientation = (orientation+6)%8;
     Serial.print("Rotating left 90 degrees ");
+    turnAngle(1,90,0);
 }
 
 //ROTATE RIGHT 135 DEGREES
 void rr135(){
     orientation = (orientation+3)%8;
     Serial.print("Rotating right 135 degrees ");
+    turnAngle(0,135,0);
 }
 
 //ROTATE LEFT 135 DEGREES
 void rl135(){
     orientation = (orientation+5)%8;
     Serial.print("Rotating left 135 degrees ");
+    turnAngle(1,135,0);
 }
 
 void r180(){
     orientation = (orientation+4)%8;
     Serial.print("Rotating 180 degrees ");
+    turnAngle(1,180,0);
 }
 
 void probe(){
@@ -1751,25 +1759,25 @@ void goStraight(int dir)
 
   delay(1000);
 
-  // Angle Correction
-  euler = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
-  curr_angle = euler.x();
-
-
-  if (curr_angle - target_angle_x > 200) {curr_angle = curr_angle - 360;}
-  if (curr_angle - target_angle_x < -200) {curr_angle = curr_angle + 360;}
-  
-  if (abs(curr_angle - target_angle_x) > 1)
-  {
-    if (curr_angle < target_angle_x)
-    {
-      turnAngle(0, abs(curr_angle - target_angle_x), 1);
-    }
-    else if (curr_angle > target_angle_x)
-    {
-      turnAngle(1, abs(curr_angle - target_angle_x), 1);
-    }
-  }
+//  // Angle Correction
+//  euler = bno.getVector(Adafruit_BNO055::VECTOR_EULER);
+//  curr_angle = euler.x();
+//
+//
+//  if (curr_angle - target_angle_x > 200) {curr_angle = curr_angle - 360;}
+//  if (curr_angle - target_angle_x < -200) {curr_angle = curr_angle + 360;}
+//  
+//  if (abs(curr_angle - target_angle_x) > 1)
+//  {
+//    if (curr_angle < target_angle_x)
+//    {
+//      turnAngle(0, abs(curr_angle - target_angle_x), 1);
+//    }
+//    else if (curr_angle > target_angle_x)
+//    {
+//      turnAngle(1, abs(curr_angle - target_angle_x), 1);
+//    }
+//  }
   
 }
 
@@ -2066,9 +2074,9 @@ void setup()
 }
 
 void loop() {
-  Serial.println(requestColour());
-  delay(500);
-  
+//  Serial.println(requestColour());
+//  delay(500);
+//  
   //bool mag = Mag_detect();
 //Serial.println(mag);
 //  Serial.println("STARTING LOOP");
@@ -2102,9 +2110,26 @@ void loop() {
 
 //Current Testing
 //  detect_objects();
-
- // goStraight(0);
-//  Serial.println(getDistance_tof());
-//  delay(100);
- // while(true);  
+  delay(500);
+  goStraight(0);
+  delay(500);
+  goStraight(0);
+  delay(500);
+  turnAngle(1, 90, 0);
+  delay(500);
+  goStraight(0);
+  delay(500);
+  turnAngle(1, 90, 0);
+  delay(500);
+  goStraight(0);
+  delay(500);
+  goStraight(0);
+  delay(500);
+  turnAngle(1, 90, 0);
+  delay(500);
+  goStraight(0);
+  delay(500);
+  turnAngle(1, 90, 0);
+    
+  while(true);  
 }
